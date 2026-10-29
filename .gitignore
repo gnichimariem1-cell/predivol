@@ -1,0 +1,16 @@
+# Données (trop lourdes pour GitHub : le notebook les télécharge depuis Kaggle)
+*.parquet
+*.csv
+data/
+donnees/
+
+# Fichiers produits par le notebook
+figures/
+figures_jalon2/
+*.zip
+
+# MLflow local et Python
+mlruns/
+__pycache__/
+.ipynb_checkpoints/
+.env
