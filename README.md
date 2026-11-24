@@ -1,44 +1,85 @@
-# PrédiVol – Prédire et expliquer les retards de vols
+# PrédiVol – Prédire le retard d'un vol avant le départ
 
-Projet du cours d'intelligence artificielle – Collège La Cité – Groupe 7
-Mohamed Ridha Benmansour et Mariem Gnichi
+Projet IA du groupe 7 (Mohamed Ridha Benmansour et Mariem Gnichi) – Collège La Cité, automne 2026.
 
-## Objectif
+PrédiVol prédit, **avant le départ**, le retard d'un vol à l'arrivée (en minutes), avec une fourchette 10 %–90 %.
+Client fictif : Air Numidia (planificateurs du centre de contrôle des opérations).
 
-Prédire, **avant le départ**, le retard d'un vol à l'arrivée (en minutes) et identifier les principaux facteurs de retard.
-Client fictif : Air Numidia (Alger et Tunis), qui ouvre des lignes vers le Canada.
+- Données : vols intérieurs américains 2023 (Kaggle, *US 2023 Civil Flights, Delays, Meteo and Aircrafts*)
+- Modèle final : gradient boosting (perte absolue), MAE de **21,5 min** sur le test (naïf : 26,0 min, soit 17,5 % de mieux)
+- Suivi des expériences : https://dagshub.com/gnichimariem1-cell/predivol.mlflow
+- Modèle enregistré : `models:/predivol-retard-arrivee/1` (registre MLflow) et `models/predivol_modele/` (local)
 
-- Type de tâche : régression (cible `Arr_Delay`, en minutes)
-- Données : vols intérieurs américains 2023 (Bureau of Transportation Statistics, via Kaggle) et météo quotidienne par aéroport
+## Structure du projet
 
-## Contenu du dépôt
+```
+app/main.py            API FastAPI : endpoints /health, /ready, /predict
+app/model_loader.py    chargement du modèle MLflow (mlflow.pyfunc.load_model)
+app/utils.py           schéma d'un vol et préparation des données
+models/predivol_modele modèle sérialisé avec MLflow (pyfunc)
+test/test_api.py       tests de l'API (pytest)
+notebooks/             dépendances du notebook
+PrediVol.ipynb         données, modèles, optimisation (Jalons 1 et 2), sérialisation (sections 30 à 32)
+requirements.txt       dépendances de l'API, versions épinglées
+Dockerfile             image Docker de l'API
+journal_de_projet.md   choix, versions et décisions
+.env                   secrets (non versionné)
+```
 
-| Fichier | Rôle |
-| --- | --- |
-| `PrediVol.ipynb` | Tout le projet : données (partie 1), modélisation (partie 2), suivi MLflow (section 23) |
-| `requirements.txt` | Bibliothèques Python nécessaires |
-| `.gitignore` | Exclut les données, l'environnement virtuel et les fichiers produits |
+## Lancer l'API en local
 
-## Résultats actuels (jeu de validation)
+Python **3.13** est obligatoire (même version que l'entraînement du modèle).
 
-| Modèle | MAE (min) | RMSE (min) | Gros retards captés |
-| --- | --- | --- | --- |
-| **Forêt aléatoire (modèle de base)** | **24,36** | **53,50** | **32,5 %** |
-| Gradient boosting | 24,47 | 53,61 | 32,4 % |
-| Ridge | 24,91 | 54,11 | 29,1 % |
-| XGBoost | 25,10 | 54,05 | 32,3 % |
-| Naïf – moyenne de la route | 25,70 | 55,27 | 15,8 % |
+```powershell
+py -V:3.13 -m venv .venv-api
+.venv-api\Scripts\activate
+pip install -r requirements.txt pytest httpx
+uvicorn app.main:app --port 8080
+```
 
-## Exécution
+Ouvrir http://localhost:8080/docs.
 
-1. Ouvrir `PrediVol.ipynb` dans Google Colab (*Fichier › Ouvrir un notebook › GitHub* › `gnichimariem1-cell/predivol`).
-2. `pip install -r requirements.txt` (Colab a déjà la plupart des bibliothèques).
-3. *Exécution › Tout exécuter*. Les données sont téléchargées automatiquement depuis Kaggle.
+## Tester
 
-## Suivi des expériences (MLflow)
+```powershell
+python -m pytest -q test
+```
 
-Les 6 modèles (4 modèles et 2 modèles naïfs) sont enregistrés avec MLflow sur DagsHub (section 23 du notebook) : paramètres, métriques (MAE, RMSE, R², capture des gros retards, prédictions à ±15 min) et fichiers produits.
+5 tests : `/health`, `/ready`, prédiction valide, prédiction sans météo, données invalides (erreur 422).
 
-À l'exécution de la section 23, le notebook demande le **jeton DagsHub** (*DagsHub › Settings › Tokens*) dans une case cachée : le jeton n'est jamais écrit dans le code.
+## Lancer avec Docker
 
-Interface MLflow : https://dagshub.com/gnichimariem1-cell/predivol.mlflow
+```powershell
+docker build -t predivol-api:v1 .
+docker run --rm -p 8080:8080 --env-file .env predivol-api:v1
+```
+
+Si le port 8080 est déjà utilisé : `-p 8081:8080`, puis ouvrir http://localhost:8081/docs.
+
+## Faire une prédiction
+
+`POST /predict` :
+
+```json
+{"vols": [{
+  "date_vol": "2023-07-14", "compagnie": "Delta Air Lines Inc",
+  "aeroport_depart": "ATL", "aeroport_arrivee": "LGA",
+  "moment_depart": "Evening", "categorie_distance": "Short Haul >1500Mi",
+  "vols_jour_avion": 4, "trafic_depart_jour": 950, "trafic_arrivee_jour": 520
+}]}
+```
+
+Réponse :
+
+```json
+{"predictions": [{"retard_prevu_min": 4.7, "borne_basse_min": -16.8, "borne_haute_min": 47.7, "risque": "modéré"}]}
+```
+
+## Fichier .env
+
+```
+MODEL_URI=models/predivol_modele
+# MODEL_URI=models:/predivol-retard-arrivee/1
+DAGSHUB_USER=gnichimariem1-cell
+DAGSHUB_TOKEN=votre_jeton
+```
